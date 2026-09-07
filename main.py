@@ -52,13 +52,19 @@ class UniversalDateInput(ft.Container):
 
 @ft.control
 class Workouts_Table(Container):
-    def __init__(self, page: ft.Page, data) -> None:
+    def __init__(self, page: ft.Page, data, on_tap_function) -> None:
         self.app_page = page
+        self.on_tap_function = on_tap_function
         self.data = data
        
         
         self.row_list = []
         
+        def handle_tap():
+            if inspect.iscoroutinefunction(self.on_tap_function):
+                return lambda e, num = workout['id']: self.app_page.run_task(self.on_tap_function ,e,num)
+            else:
+                return lambda e, num = workout['id']: self.on_tap_function(e,num)
         
                 
         for id, workout in enumerate(self.data, 1):
@@ -70,6 +76,7 @@ class Workouts_Table(Container):
                             ft.DataCell(content=ft.Text(f'{workout['date']}')),
                             ft.DataCell(content=ft.Text(f'{workout['notes']}')),
                         ],
+                        on_tap=handle_tap()
                     )
                 )
         
@@ -110,118 +117,9 @@ def init_database():
         key,
     )
 
-def check_session(supabase_client):
-    api_response = supabase_client.auth.getSession()
-    
-    if api_response.session:
-        return True
-    return False
+
             
-            
-
-def delete_workout(supabase_client):
-    check = check_session(supabase_client)
-        
-    if check == False:
-        email = str(input("email: "))
-        password = stdiomask.getpass(prompt="Enter Password: ")
-        if len(password) < 6:
-            return
-
-        supabase_client.auth.sign_in_with_password(
-            {
-                "email": email,
-                "password": password
-            }
-        )
-    
-    
-    current_user = supabase_client.auth.get_user()
-
-    if current_user:
-        full_data = supabase_client.table('workouts').select("*").eq("user_id", current_user.user.id).execute()
-        workouts = full_data.data
-        
-        print("--- ALL WORKOUTS ---")
-        if workouts:
-            for index, workout in enumerate(workouts, 1):
-                print(f'#{index} -  Name: {workout.get('name')} | Date: {workout.get('date')} | Notes: {workout.get('notes')}')
-    
                     
-        delete_workout_id = int(input("\n Delete what workout?"))
-        
-        if delete_workout_id > len(workouts):
-            return
-        
-        else:
-            index = delete_workout_id - 1
-            
-            workout_to_be_deleted = workouts[index].get('id')
-            
-            print(workout_to_be_deleted)
-            
-            supabase_client.table('workouts').delete().eq("user_id", current_user.user.id).eq('id', workout_to_be_deleted).execute()
-            
-
-def edit_workout(supabase_client):
-    check = check_session(supabase_client=supabase_client)
-            
-    if check == False:
-        email = str(input("email: "))
-        password = stdiomask.getpass(prompt="Enter Password: ")
-        if len(password) < 6:
-            return
-
-        
-    
-    
-    current_user = supabase_client.auth.get_user()
-
-    if current_user:
-        full_data = supabase.table('workouts').select("*").eq("user_id", current_user.user.id).execute()
-        workouts = full_data.data
-
-        print("--- ALL WORKOUTS ---")
-        if workouts:
-            for index, workout in enumerate(workouts, 1):
-                print(f"#{index} -  Name: {workout.get('name')} | Date: {workout.get('date')} | Notes: {workout.get('notes')}")
-
-                    
-        edit_workout_id = int(input("\nEdit what workout?"))
-
-        if edit_workout_id > len(workouts):
-            return
-
-        else:
-            editable = ('name', 'notes')
-                    
-            editing_stat = input("What stat to edit: ").lower().strip()
-            
-            if editing_stat not in editable:
-                return
-                    
-            index = edit_workout_id - 1
-            
-            workout_to_be_edited = workouts[index].get('id')
-            
-            print(workout_to_be_edited)
-            
-            edited_value = input(f'Edit {editing_stat} to: ')
-            
-            if edited_value:
-                response = (
-                    supabase.table('workouts')
-                    .update({editing_stat : edited_value})
-                    .eq('user_id', current_user.user.id)
-                    .eq('id', workout_to_be_edited)
-                    .execute()
-                )
-                
-                if response:
-                    print(response)
-                       
-    
-    
 @ft.control
 class Page_Switch_Button(ft.Button):
     def __init__(self, page, route) -> None:
@@ -472,10 +370,10 @@ class All_Workouts():
         self.app_page = page
         self.app_connector :App_to_Backend_Connector = app_connector
 
-        
+       
 
         self.workouts = ft.Container(
-            content=Workouts_Table(page=self.app_page, data=self.app_connector.all_workouts)
+            content=Workouts_Table(page=self.app_page, data=self.app_connector.all_workouts, on_tap_function=self.go_to_workout_info)
         )
         
         self.view = ft.View(
@@ -511,8 +409,141 @@ class All_Workouts():
                     ]
                 )
                 
+    async def go_to_workout_info(self,e, num):
+        self.app_connector.workout = num
+        await self.app_page.push_route('/card')
+        
+class Workout_Card_Page():
+    def __init__(self, page, app_connector) -> None:
+        self.app_page :ft.Page = page
+        self.app_connector :App_to_Backend_Connector = app_connector
 
 
+        for workout in self.app_connector.all_workouts:
+            if workout['id'] == self.app_connector.workout:
+                self.text = ft.Column(
+                    controls=[
+                        ft.Text(
+                            workout['name'].title(),
+                            size=28,
+                            weight=ft.FontWeight.BOLD
+                        ),
+                        ft.Text(
+                            workout['date'],
+                            size=14,
+                            color=ft.Colors.GREY_600
+                        ),
+                        ft.Divider(),
+                        ft.Text(
+                            workout['notes'],
+                            size=15
+                        ),
+                    ],
+                    spacing=12
+                )
+            
+
+        
+        
+        self.delete_button = ft.Button(
+            content='Delete (long press)',
+            on_long_press= lambda: self.delete_function()
+        )
+        
+        self.edit_button = ft.Button(
+            content='Edit',
+            on_click= lambda: self.edit_function()
+        )
+        
+
+       
+        
+        self.view = ft.View(
+                    padding= ft.Padding.all(5),
+                    controls=[
+                        ft.Container(
+                            alignment=ft.Alignment.CENTER,
+                            content=ft.Column(
+                                        alignment= ft.MainAxisAlignment.CENTER,
+                                        horizontal_alignment=ft.CrossAxisAlignment.CENTER,
+                                        controls=[
+                                            self.text,
+                                            self.delete_button,
+                                            self.edit_button,
+                                            Page_Switch_Button(page=self.app_page, route='/all')
+                                        ]
+                                    ),
+                            padding=ft.Padding.all(15),
+                            border=ft.Border.all(2,ft.Colors.BLACK),
+                            border_radius=ft.BorderRadius.all(10)
+                        ),
+                    ]
+                )
+
+          
+    def delete_function(self):
+        self.app_connector.delete_workout(self.app_connector.workout)
+        self.app_connector.workout = ''
+        
+        self.text.controls = [ft.Text("Deleted")]
+        self.delete_button.visible = False
+    
+    def edit_function(self):
+        for workout in self.app_connector.all_workouts:
+            if workout['id'] == self.app_connector.workout:
+                self.name_field = ft.TextField(
+                    label="Name",
+                    value=workout['name']
+                )
+
+                self.date_field = UniversalDateInput(page=self.app_page)
+                date_format = "%Y-%m-%d"
+                datetime_obj = datetime.datetime.strptime(workout['date'], date_format)
+                self.date_field.selected_date = datetime_obj
+                self.date_field.date_selected_text.value = workout['date']
+
+                self.notes_field = ft.TextField(
+                    label="Notes",
+                    value=workout['notes'],
+                    multiline=True,
+                    min_lines=3
+                )
+
+                self.text.controls = [
+                    self.name_field,
+                    self.date_field,
+                    self.notes_field,
+                ]
+                
+                self.submit_edits = ft.Button(
+                    content='Save',
+                    on_click=lambda: asyncio.create_task(self.submit_button_on_click())
+                )
+
+        self.view.controls = [
+            self.text,
+            self.submit_edits,
+            Page_Switch_Button(page=self.app_page, route='/all')
+        ]
+        
+        self.app_page.update()
+    
+    async def submit_button_on_click(self):
+        edited_name =self.name_field.value
+        edited_date =self.date_field.selected_date
+        edited_notes =self.notes_field.value
+        
+        date_format = "%m/%d/%Y"
+        dt_object = datetime.datetime.strptime(edited_date, date_format)
+        
+        edited_date = dt_object.date().isoformat()
+
+        self.app_connector.edit_workout(self.app_connector.workout, edited_name, edited_date, edited_notes)
+        
+        await self.app_page.push_route('/home')
+        await self.app_page.push_route('/card')
+        
+            
 class Router():
     @staticmethod
     def get_page(route, page, app_connector):
@@ -525,11 +556,14 @@ class Router():
                 return Add_Workout(page, app_connector).view
             case "/all":
                 return All_Workouts(page, app_connector).view
+            case "/card":
+                return Workout_Card_Page(page, app_connector).view
             
 class App_to_Backend_Connector():
     def __init__(self, supabase) -> None:
         self.supabase = supabase
         self.all_workouts = []
+        self.workout = ''
         
     def sign_up(self, email, password):
         response = self.supabase.auth.sign_up(
@@ -570,9 +604,32 @@ class App_to_Backend_Connector():
         current_user = self.supabase.auth.get_user()
 
         if current_user:
-            full_data = self.supabase.table('workouts').select("name", "date", "notes").eq("user_id", current_user.user.id).execute()
+            full_data = self.supabase.table('workouts').select("*").eq("user_id", current_user.user.id).execute()
             sanitized_data = full_data.data
             self.all_workouts = sanitized_data
+
+    def delete_workout(self, id):    
+        current_user = self.supabase.auth.get_user()
+
+        if current_user:
+            self.supabase.table('workouts').delete().eq("user_id", current_user.user.id).eq('id', id).execute()
+
+    def edit_workout(self, id, name, date, notes):
+        current_user = self.supabase.auth.get_user()
+
+        if current_user:
+            response = (
+                self.supabase.table('workouts')
+                .update({
+                    'name' : name, 
+                    'date' : date, 
+                    'notes' : notes
+                })
+                .eq('user_id', current_user.user.id)
+                .eq('id', id)
+                .execute()
+            )
+                    
 
 
 class App():
